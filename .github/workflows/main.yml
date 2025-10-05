@@ -54,7 +54,7 @@ jobs:
   publish:
     needs: [build-cli, build-gui]
     runs-on: ubuntu-latest
-    if: github.ref_type == "tag"
+    if: github.ref_type == 'tag'
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
