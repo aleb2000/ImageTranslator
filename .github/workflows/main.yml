@@ -54,7 +54,7 @@ jobs:
   publish:
     needs: [build-cli, build-gui]
     runs-on: ubuntu-latest
-    if: github.ref_name == github.event.repository.default_branch
+    if: github.ref_type == "tag"
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -63,5 +63,4 @@ jobs:
       - uses: actions/download-artifact@v5
       - name: Create release
         run: |
-          gh release delete latest --cleanup-tag --yes || true
-          gh release create latest --title "Latest release" dist-*/*
+          gh release create ${GITHUB_REF_NAME} --title "Image Translator ${GITHUB_REF_NAME}" dist-*/*
