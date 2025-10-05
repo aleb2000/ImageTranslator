@@ -50,3 +50,16 @@ jobs:
         with:
           name: dist-gui
           path: dist/*
+
+  publish:
+    needs: [build-cli, build-gui]
+    runs-on: ubuntu-latest
+    if: github.ref == github.event.repository.default_branch
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v5
+      - name: Create release
+        run: |
+          gh release delete latest --cleanup-tag --yes || true
+          gh release create latest --title "Latest release" dist-*/*
