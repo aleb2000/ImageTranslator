@@ -100,7 +100,7 @@ class OCRResult:
         self.bbox = bbox
 
     def merge(self, other: OCRResult) -> OCRResult:
-        text = self.text + other.text
+        text = self.text + " " + other.text
         bbox = self.bbox.merge(other.bbox)
         return OCRResult(text, bbox)
 

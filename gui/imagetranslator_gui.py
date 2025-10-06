@@ -1,4 +1,5 @@
 from __future__ import annotations
+import sys
 import traceback
 from enum import Enum, auto
 from pathlib import Path
@@ -894,6 +895,7 @@ class ImageTranslatorFrame(wx.Frame):
                 self.translation_progress.add_translated_file(path)
             except Exception as e:
                 print(f"Failed to translate file {path} with error {e}")
+                traceback.print_exc()
                 self.translation_progress.add_errored_file(path, e)
 
         self.translation_progress.state = TranslationState.FINISHED
@@ -907,4 +909,4 @@ def main():
 
 
 if __name__ == "__main__":
-    exit(main())
+    sys.exit(main())
