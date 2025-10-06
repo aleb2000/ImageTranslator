@@ -18,8 +18,10 @@ deps_need = [dep for dep in user_deps if dep in deps_all]
 
 cmd = [
     "pyinstaller", main_file,
+    "-w",
     "--collect-data", "paddlex",
     "--collect-binaries", "paddle",
+    "--collect-all", "easynmt",
 ]
 
 if args.nvidia:

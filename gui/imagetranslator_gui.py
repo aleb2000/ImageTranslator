@@ -9,7 +9,6 @@ import wx
 import imagetranslator
 from imagetranslator import (
     ArgosTranslator,
-    BergamotTranslator,
     CnOCR,
     EasyNMTTranslator,
     EasyOCR,
@@ -18,6 +17,10 @@ from imagetranslator import (
     PyOCR,
     translate_image_file,
 )
+
+if sys.platform != "win32":
+    from imagetranslator import BergamotTranslator
+
 from iso639 import languages
 
 
@@ -40,14 +43,19 @@ OCR_ENGINES = [
 
 class TranslationModel(str, Enum):
     ARGOS = "Argos Translate"
-    BERGAMOT = "Bergamot"
+    if sys.platform != "win32":
+        BERGAMOT = "Bergamot"
     OPUS = "Opus-MT"
     MBART50 = "mBART_50"
     M2M_100_418M = "M2M_100_418M"
     M2M_100_1_2B = "M2M_100_1.2B"
 
 
-TRANSLATION_MODELS_CPU = [TranslationModel.ARGOS, TranslationModel.BERGAMOT]
+if sys.platform != "win32":
+    TRANSLATION_MODELS_CPU = [TranslationModel.ARGOS, TranslationModel.BERGAMOT]
+else:
+    TRANSLATION_MODELS_CPU = [TranslationModel.ARGOS]
+
 TRANSLATION_MODELS_SUPPORT_CUDA = [
     TranslationModel.OPUS,
     TranslationModel.MBART50,
@@ -467,14 +475,14 @@ class ImageTranslatorFrame(wx.Frame):
         self.files_list = wx.ListBox(
             self.files_list_book,
             size=wx.Size(-1, 150),
-            style=wx.LB_MULTIPLE | wx.RAISED_BORDER,
+            style=wx.LB_MULTIPLE,
         )
         self.files_list.SetToolTip("The image files to translate.")
         self.files_list.Bind(wx.EVT_KEY_DOWN, self.on_list_key_down, self.files_list)
         self.Bind(wx.EVT_CONTEXT_MENU, self.on_list_context_menu, self.files_list)
 
         self.empty_list_text_panel = wx.Panel(
-            self.files_list_book, style=wx.SUNKEN_BORDER
+            self.files_list_book, style=wx.SIMPLE_BORDER
         )
         empty_list_text_sizer = wx.BoxSizer()
         self.empty_list_text_panel.SetSizer(empty_list_text_sizer)
@@ -643,7 +651,8 @@ class ImageTranslatorFrame(wx.Frame):
     def on_list_context_menu_selectall(self, _):
         self.list_select_all()
 
-    def on_language_kill_focus(self, _: wx.FocusEvent):
+    def on_language_kill_focus(self, e: wx.FocusEvent):
+        e.Skip()
         self.validate_recursively()
 
     def validate_recursively(self):
@@ -798,7 +807,7 @@ class ImageTranslatorFrame(wx.Frame):
         try:
             if translator_name == TranslationModel.ARGOS:
                 translator = ArgosTranslator(source_lang, target_lang)
-            elif translator_name == TranslationModel.BERGAMOT:
+            elif sys.platform != "win32" and translator_name == TranslationModel.BERGAMOT:
                 translator = BergamotTranslator(source_lang, target_lang)
             elif translator_name == TranslationModel.OPUS:
                 translator = EasyNMTTranslator(
