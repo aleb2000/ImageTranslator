@@ -7,7 +7,7 @@ requires-python = ">=3.10"
 dependencies = [
     "accelerate>=1.10.1",
     "argostranslate>=1.9.6",
-    "bergamot>=0.4.5",
+    "bergamot>=0.4.5; sys_platform != 'win32'",
     "cnocr[ort-cpu]>=2.3.2.1",
     "easynmt>=2.0.2",
     "easyocr>=1.7.2",
@@ -22,9 +22,16 @@ dependencies = [
     "pypdf>=6.0.0",
     "scipy>=1.15.3",
     "sentencepiece",
-    "simple-lama-inpainting>=0.1.0",
+    "simple-lama-inpainting>=0.1.1",
     "torch>=2.8.0",
     "transformers>=4.56.1",
+]
+
+[tool.uv]
+# fasttext is disabled because it can't be compiled on windows.
+# I disabled it globally since we don't use it anyway
+override-dependencies = [
+    "fasttext; sys_platform == 'never'",
 ]
 
 [build-system]

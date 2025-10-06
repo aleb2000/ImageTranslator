@@ -1,11 +1,13 @@
 from __future__ import annotations
 import argparse
+import sys
 from enum import Enum
 import pathlib
 from typing import Any, Callable, Literal
 import numpy as np
 from pypdf import PageObject, PdfWriter
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
+import puremagic
 from ocr import (
     OCR,
     CnOCR,
@@ -19,11 +21,11 @@ from ocr import (
 )
 from translator import (
     ArgosTranslator,
-    BergamotTranslator,
     EasyNMTTranslator,
     Translator,
 )
-import puremagic
+if sys.platform != "win32":
+    from translator import BergamotTranslator
 
 
 def wrap_text(
@@ -365,20 +367,30 @@ def main():
         help="The Optical Image Recognition engine to use to extract text from images. By default it will be chosen automatically depending on the source language. CnOCR whill be used for Chinese, while PaddleOCR for other supported languages, falling back to EasyOCR and PyOCR (frontend for Tesseract) when necessary.",
         choices=["auto", "cn", "paddle", "easy", "py"],
     )
-    parser.add_argument(
-        "-t",
-        "--translator",
-        type=str,
-        default="argos",
-        help="The translation model to use. Argos is the lightest model to run and the default. Try different models and decide which one works best for your text.",
-        choices=[
+    if sys.platform != "win32":
+        translator_choices = [
             "argos",
             "bergamot",
             "opus",
             "mbart50",
             "m2m-100-418M",
             "m2m-100-1.2B",
-        ],
+        ]
+    else:
+        translator_choices = [
+            "argos",
+            "opus",
+            "mbart50",
+            "m2m-100-418M",
+            "m2m-100-1.2B",
+        ]
+    parser.add_argument(
+        "-t",
+        "--translator",
+        type=str,
+        default="argos",
+        help="The translation model to use. Argos is the lightest model to run and the default. Try different models and decide which one works best for your text.",
+        choices=translator_choices,
     )
 
     parser.add_argument(
@@ -451,7 +463,7 @@ def main():
 
     if args.output and len(args.file) > 1 and args.output.is_file():
         print("When translating multiple files the output argument must be a directory")
-        exit(1)
+        sys.exit(1)
 
     if args.vertical_rtl:
         args.vertical = True
@@ -501,7 +513,7 @@ def main():
         )
     else:
         print(f"Unknown translator: {args.translator}")
-        exit(1)
+        sys.exit(1)
 
     print(f"Initialized translator: {translator.name}")
 
@@ -521,7 +533,7 @@ def main():
         ocr = PyOCR(args.source_lang)
     else:
         print(f"Unknown OCR engine: {args.ocr}")
-        exit(1)
+        sys.exit(1)
 
     if args.text_erasure == "inpaint":
         text_erasure = TextErasure.INPAINT
@@ -533,7 +545,7 @@ def main():
         text_erasure = TextErasure.NONE
     else:
         print(f"Invalid text erasure technique: {args.text_erasure}")
-        exit(1)
+        sys.exit(1)
 
     if args.file_list:
         files: list[pathlib.Path] = []
