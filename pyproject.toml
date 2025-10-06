@@ -11,10 +11,10 @@ dependencies = [
     "cnocr[ort-cpu]>=2.3.2.1",
     "easynmt>=2.0.2",
     "easyocr>=1.7.2",
-    "numpy",
+    "numpy>=2.0.0",
 	"paddlepaddle>=3.2.0",
     "paddleocr[all]>=3.2.0",
-    "pillow>10.0,<11.0",
+    "pillow>=10.0,<11.0",
     "platformdirs>=4.4.0",
     "puremagic>=1.30",
     "pylette>=5.1",
@@ -22,16 +22,20 @@ dependencies = [
     "pypdf>=6.0.0",
     "scipy>=1.15.3",
     "sentencepiece",
-    "simple-lama-inpainting>=0.1.1",
+    "simple-lama-inpainting>=0.1.2",
     "torch>=2.8.0",
     "transformers>=4.56.1",
 ]
 
 [tool.uv]
-# fasttext is disabled because it can't be compiled on windows.
-# I disabled it globally since we don't use it anyway
 override-dependencies = [
+	# fasttext is disabled because it can't be compiled on windows.
+	# I disabled it globally since we don't use it anyway
     "fasttext; sys_platform == 'never'",
+	# simple-lama-inpainting has not updated its numpy and pillow versions,
+	# if we want to make it work we need to override its dependencies
+	"numpy>=2.0.0",
+    "pillow>=10.0,<11.0",
 ]
 
 [build-system]
