@@ -51,7 +51,7 @@ jobs:
           name: dist-gui
           path: dist/*
 
-  build-windows-gui:
+  build-windows-gui-pyinstaller:
     runs-on: windows-latest
 
     steps:
@@ -69,6 +69,7 @@ jobs:
 
       - name: PyInstaller build
         run: |
+          uv venv
           cd gui
           uv pip install pyinstaller
           uv run package.py
