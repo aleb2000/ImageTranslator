@@ -51,6 +51,33 @@ jobs:
           name: dist-gui
           path: dist/*
 
+  build-windows-gui:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v5
+      
+      - name: Setup Python
+        uses: actions/setup-python@v6.0.0
+        with:
+          python-version-file: ".python-version"
+          
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: PyInstaller build
+        run: |
+          cd gui
+          uv pip install pyinstaller
+          uv run package.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-win-gui-exe
+          path: gui/dist/*
+
   publish:
     needs: [build-cli, build-gui]
     runs-on: ubuntu-latest
