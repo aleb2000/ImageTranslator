@@ -24,6 +24,7 @@ from translator import (
     EasyNMTTranslator,
     Translator,
 )
+
 if sys.platform != "win32":
     from translator import BergamotTranslator
 
@@ -67,6 +68,7 @@ def draw_wrapped_text(
     """
     Adapted from https://gist.github.com/sushaanttb/f0799d60ab99ab07422aa1dfc8dd0fa9
     """
+
     def create_font(size):
         if font_path != None:
             return ImageFont.truetype(font_path, size)
@@ -286,10 +288,17 @@ class ImageTranslator:
         if text_erasure == TextErasure.BLUR:
             self._cover_blur(translated_image, results)
 
+        # Translate text
+        text_to_draw: list[tuple[OCRResult, str]] = list(
+            zip(
+                recognitions,
+                self.translator.batch_translate([recog.text for recog in recognitions]),
+            )
+        )
+
         # Now draw the text
         draw = ImageDraw.Draw(translated_image)
-        for recog in recognitions:
-            trans = self.translator.translate(recog.text)
+        for recog, trans in text_to_draw:
             print(f"{recog.text} -> {trans}")
 
             # Figure out the text fill and stroke colors
