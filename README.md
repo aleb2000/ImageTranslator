@@ -4,6 +4,8 @@ A local image translation tool written in python. It supports several OCR and tr
 
 Requires Python 3.10
 
+Suggestions and PRs are welcome!
+
 # OCR Engines
 
 The following OCR engines are supported.
@@ -48,6 +50,10 @@ All models (except the Tesseract ones) will be downloaded automatically when req
 NOTE: The downloads are handled by each OCR engine and translator on their own as such their download location will vary, check each model's own documentation if you want to learn where the model has been downloaded. The only exception is Bergamot, that did not include automatic model download functionality and as such I have implemented it myself: the models are downloaded at `~/.local/share/imagetranslator/bergamot` (on Linux).
 
 Neither CLI nor GUI applications currently implement a way to manage downloaded models. To remove them you will have to manually delete the files yourself.
+
+# Known issues
+
+- (GUI) the "cancel" option during a translation is currently not implemented, don't use it
 
 # LICENSE
 
