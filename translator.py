@@ -30,14 +30,32 @@ class Translator(ABC):
         return [self.translate(text) for text in texts]
 
 
+def space_punctuation(text):
+    other_spacing_characters = ["～", "~"]
+
+    def char_should_be_spaced(c: str):
+        return unicodedata.category(c).startswith("P") or c in other_spacing_characters
+
+    spaced_text = ""
+    i = 0
+    for i in range(0, len(text)):
+        c = text[i]
+        spaced_text += c
+        if char_should_be_spaced(c) and i < len(text) - 1:
+            next = text[i + 1]
+            if next != " " and not char_should_be_spaced(next):
+                spaced_text += " "
+
+    return spaced_text
+
+
 class ArgosTranslator(Translator):
     source_lang: str
     target_lang: str
 
-    OTHER_SPACING_CHARACTERS = ["～", "~"]
-
     def __init__(self, source_lang, target_lang="en") -> None:
         import argostranslate.package
+
         super().__init__("argos")
         self.source_lang = source_lang
         self.target_lang = target_lang
@@ -80,17 +98,6 @@ class ArgosTranslator(Translator):
 
     def translate(self, text: str) -> str:
         import argostranslate.translate
-        # Argos seems to be quite sensitive to spacing after punctuation,
-        # this should help improve the translation quality
-        # preprocessed = ""
-        # i = 0
-        # for i in range(0, len(text)):
-        #     c = text[i]
-        #     preprocessed += c
-        #     if ArgosTranslator.char_should_be_spaced(c) and i < len(text) - 1:
-        #         next = text[i + 1]
-        #         if next != " " and not ArgosTranslator.char_should_be_spaced(next):
-        #             preprocessed += " "
 
         return argostranslate.translate.translate(
             text, self.source_lang, self.target_lang
@@ -99,17 +106,7 @@ class ArgosTranslator(Translator):
     def batch_translate(self, texts: list[str]) -> list[str]:
         return super().batch_translate(texts)
 
-    @staticmethod
-    def char_should_be_spaced(c: str):
-        return (
-            unicodedata.category(c).startswith("P")
-            or c in ArgosTranslator.OTHER_SPACING_CHARACTERS
-        )
-
-    def find_packages_for_translation(
-        self,
-        repo
-    ) -> list | None:
+    def find_packages_for_translation(self, repo) -> list | None:
         """Find translation packages, either by direct translation or by pivoting through another language"""
         import argostranslate.package
 
@@ -145,15 +142,14 @@ class ArgosTranslator(Translator):
 
 
 if sys.platform != "win32":
+
     class BergamotTranslator(Translator):
         URL_MODELS_BY_HASH = "https://raw.githubusercontent.com/mozilla/firefox-translations-models/refs/heads/main/models/by-hash.json"
         RE_METADATA_PATH = re.compile(
             r"models/([-A-Za-z_]+)/([a-z]{2})([a-z]{2})/metadata\.json"
         )
         RE_LANGS_DIR = re.compile(r"([a-z]{2})([a-z]{2})")
-        URL_FIREFOX_REPO_PREFIX = (
-            "https://github.com/mozilla/firefox-translations-models/raw/refs/heads/main/"
-        )
+        URL_FIREFOX_REPO_PREFIX = "https://github.com/mozilla/firefox-translations-models/raw/refs/heads/main/"
 
         @typing.no_type_check
         def __init__(
@@ -226,7 +222,9 @@ if sys.platform != "win32":
             sort_order = {_type: i for (i, _type) in enumerate(preference)}
             correct_lang_models.sort(
                 key=lambda model: (
-                    sort_order[model._type] if model._type in preference else sys.maxsize
+                    sort_order[model._type]
+                    if model._type in preference
+                    else sys.maxsize
                 )
             )
 
@@ -324,7 +322,9 @@ alignment: soft
                 return super().shortlist_filename() + ".gz"
 
             def metadata_url(self) -> str:
-                return BergamotTranslator.URL_FIREFOX_REPO_PREFIX + str(self.metadata_path)
+                return BergamotTranslator.URL_FIREFOX_REPO_PREFIX + str(
+                    self.metadata_path
+                )
 
             def base_url(self) -> str:
                 return BergamotTranslator.URL_FIREFOX_REPO_PREFIX + str(
@@ -460,6 +460,7 @@ class EasyNMTTranslator(Translator):
     ) -> None:
         from easynmt.EasyNMT import EasyNMT
         import nltk
+
         super().__init__(model_name)
         nltk.download("punkt_tab")
 
