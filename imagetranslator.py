@@ -1,13 +1,15 @@
 from __future__ import annotations
 import argparse
 import sys
-from enum import Enum
+import time
+from enum import Enum, auto
 import pathlib
 from typing import Any, Callable, Literal
 import numpy as np
 from pypdf import PageObject, PdfWriter
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import puremagic
+from logger import __initialize_logger, get_logger
 from ocr import (
     OCR,
     CnOCR,
@@ -24,6 +26,8 @@ from translator import (
     EasyNMTTranslator,
     Translator,
 )
+
+l = get_logger("MAIN")  # noqa: E741
 
 if sys.platform != "win32":
     from translator import BergamotTranslator
@@ -70,7 +74,7 @@ def draw_wrapped_text(
     """
 
     def create_font(size):
-        if font_path != None:
+        if font_path is not None:
             return ImageFont.truetype(font_path, size)
         else:
             return ImageFont.load_default(size=size)
@@ -155,13 +159,13 @@ def groupby(elements: list[Any], predicate: Callable[[Any, Any], bool]) -> list[
                     if predicate(candidate1, candidate2):
                         merge_with_idx = j
                         break
-                if merge_with_idx != None:
+                if merge_with_idx is not None:
                     break
-            if merge_with_idx != None:
+            if merge_with_idx is not None:
                 break
             j += 1
 
-        if merge_with_idx != None:
+        if merge_with_idx is not None:
             group_to_merge = groups[merge_with_idx]
             group1.extend(group_to_merge)
             groups.remove(group_to_merge)
@@ -176,6 +180,13 @@ class TextErasure(str, Enum):
     INPAINT_LAMA = "inpaint-lama"
     BLUR = "blur"
     NONE = "none"
+
+
+class TranslationStep(Enum):
+    OCR = auto()
+    TEXT_ERASURE = auto()
+    TRANSLATE = auto()
+    DRAW = auto()
 
 
 class ImageTranslator:
@@ -201,7 +212,7 @@ class ImageTranslator:
         self.font_path = font_path
 
         if self.text_erasure == TextErasure.INPAINT_LAMA:
-            if lama_device == None:
+            if lama_device is None:
                 self.simple_lama = SimpleLama()
             else:
                 self.simple_lama = SimpleLama(device=torch.device(lama_device))
@@ -244,8 +255,20 @@ class ImageTranslator:
 
         image.paste(blurred, mask=blur_mask)
 
-    def translate(self, image: Image.Image, vertical_rtl: bool = False):
+    def translate(
+        self,
+        image: Image.Image,
+        vertical_rtl: bool = False,
+        translation_step_callback: Callable[
+            [TranslationStep | None, TranslationStep | None], None
+        ] = lambda _previos_step, _next_step: None,
+        logger=l,  # noqa: E741
+    ):
         from Pylette import extract_colors
+
+        l = logger  # noqa: E741
+
+        translation_step_callback(None, TranslationStep.OCR)
 
         results = list(
             filter(lambda res: res.text.strip() != "", self.ocr.ocr(image)),
@@ -275,13 +298,14 @@ class ImageTranslator:
         translated_image = image.copy()
 
         # First cover all the recognized text boxes using the selected technique
+        translation_step_callback(TranslationStep.OCR, TranslationStep.TEXT_ERASURE)
         text_erasure = self.text_erasure
         if text_erasure == TextErasure.INPAINT:
             try:
                 translated_image = self._inpaint(translated_image, results)
             except ValueError as e:
-                print(f"Inpainting failed with error: {e}")
-                print("Falling back to blur")
+                l.error(f"Inpainting failed with error: {e}")
+                l.warning("Falling back to blur")
                 text_erasure = TextErasure.BLUR
         if text_erasure == TextErasure.INPAINT_LAMA:
             translated_image = self._inpaint_lama(translated_image, results)
@@ -289,6 +313,9 @@ class ImageTranslator:
             self._cover_blur(translated_image, results)
 
         # Translate text
+        translation_step_callback(
+            TranslationStep.TEXT_ERASURE, TranslationStep.TRANSLATE
+        )
         text_to_draw: list[tuple[OCRResult, str]] = list(
             zip(
                 recognitions,
@@ -297,9 +324,10 @@ class ImageTranslator:
         )
 
         # Now draw the text
+        translation_step_callback(TranslationStep.TRANSLATE, TranslationStep.DRAW)
         draw = ImageDraw.Draw(translated_image)
         for recog, trans in text_to_draw:
-            print(f"{recog.text} -> {trans}")
+            l.info(f"{recog.text} -> {trans}")
 
             # Figure out the text fill and stroke colors
             cropped = image.crop(recog.bbox.coords())
@@ -320,7 +348,35 @@ class ImageTranslator:
                 stroke_color=inverted_color,
             )
 
+        translation_step_callback(TranslationStep.DRAW, None)
         return translated_image
+
+
+step_start_time: float = 0.0
+
+
+def translation_step_callback(
+    previous_step: TranslationStep | None, _next_step: TranslationStep | None, logger=l
+):
+    global step_start_time
+    l = logger  # noqa: E741
+
+    cur_time = time.monotonic()
+    elapsed = cur_time - step_start_time
+
+    steps = {
+        TranslationStep.OCR: "OCR",
+        TranslationStep.TEXT_ERASURE: "erasing text",
+        TranslationStep.TRANSLATE: "translating strings",
+        TranslationStep.DRAW: "drawing",
+    }
+
+    if previous_step:
+        finished_step = steps.get(previous_step)
+        if finished_step:
+            l.info(f"Finished {finished_step} (took {elapsed:.2f} seconds)")
+
+    step_start_time = cur_time
 
 
 def translate_page(
@@ -330,7 +386,9 @@ def translate_page(
 ):
     for image in page.images:
         assert image.image
-        translated_image = image_translator.translate(image.image, vertical_rtl)
+        translated_image = image_translator.translate(
+            image.image, vertical_rtl, translation_step_callback
+        )
         image.replace(translated_image)
 
 
@@ -351,12 +409,20 @@ def translate_pdf(
 
 def translate_image_file(
     image_translator: ImageTranslator,
-    path,
+    path: pathlib.Path,
     output_path,
     vertical_rtl=False,
 ):
     image = Image.open(path)
-    translated_image = image_translator.translate(image, vertical_rtl)
+    logger = get_logger(path.name)
+    translated_image = image_translator.translate(
+        image,
+        vertical_rtl,
+        lambda previous_step, next_step: translation_step_callback(
+            previous_step, next_step, logger
+        ),
+        logger,
+    )
     translated_image.save(output_path)
 
 
@@ -386,7 +452,7 @@ def main():
             "m2m-100-1.2B",
         ]
     else:
-        translator_choices = [
+        translator_choices = [  # type: ignore
             "argos",
             "opus",
             "mbart50",
@@ -471,21 +537,23 @@ def main():
     args = parser.parse_args()
 
     if args.output and len(args.file) > 1 and args.output.is_file():
-        print("When translating multiple files the output argument must be a directory")
+        l.error(
+            "When translating multiple files the output argument must be a directory"
+        )
         sys.exit(1)
 
     if args.vertical_rtl:
         args.vertical = True
 
-    print("Source language:", args.source_lang)
-    print("Target language:", args.target_lang)
+    l.info(f"Source language: {args.source_lang}")
+    l.info(f"Target language: {args.target_lang}")
 
     easynmt_device = None
     if args.cpu:
-        print("Using CPU")
+        l.info("Using CPU")
         easynmt_device = EasyNMTTranslator.Device.CPU
     elif args.cuda:
-        print("Using CUDA")
+        l.info("Using CUDA")
         easynmt_device = EasyNMTTranslator.Device.CUDA
 
     if args.translator == "argos":
@@ -521,10 +589,10 @@ def main():
             target_lang=args.target_lang,
         )
     else:
-        print(f"Unknown translator: {args.translator}")
+        l.error(f"Unknown translator: {args.translator}")
         sys.exit(1)
 
-    print(f"Initialized translator: {translator.name}")
+    l.info(f"Initialized translator: {translator.name}")
 
     if args.ocr == "auto":
         if args.source_lang == "zh":
@@ -541,7 +609,7 @@ def main():
     elif args.ocr == "py" or args.ocr == "pyocr":
         ocr = PyOCR(args.source_lang)
     else:
-        print(f"Unknown OCR engine: {args.ocr}")
+        l.error(f"Unknown OCR engine: {args.ocr}")
         sys.exit(1)
 
     if args.text_erasure == "inpaint":
@@ -553,7 +621,7 @@ def main():
     elif args.text_erasure == "none":
         text_erasure = TextErasure.NONE
     else:
-        print(f"Invalid text erasure technique: {args.text_erasure}")
+        l.error(f"Invalid text erasure technique: {args.text_erasure}")
         sys.exit(1)
 
     if args.file_list:
@@ -576,11 +644,11 @@ def main():
 
     for path in files:
         if not path.exists():
-            print("File does not exist:", path)
+            l.warning(f"File does not exist: {path}")
             continue
 
         if path.is_dir():
-            print("Skipping directory:", path)
+            l.warning(f"Skipping directory: {path}")
             continue
 
         if args.output:
@@ -594,7 +662,7 @@ def main():
             parent_dir = path.parent.resolve()
             output_path = parent_dir.joinpath(path.stem + ".translated" + path.suffix)
 
-        print("Translating:", path)
+        l.info(f"Translating: {path}")
 
         guesses = puremagic.magic_file(path)
         accepted_guess = None
@@ -620,16 +688,18 @@ def main():
                 break
 
         if not accepted_guess:
-            print("Unsupported file format:", path)
+            l.warning(f"Unsupported file format: {path}")
             if len(guesses) > 0:
-                print(
+                l.warning(
                     "Hint: The file seems to be one of the following types, which are not supported by this program."
                 )
                 for guess in guesses:
-                    print(f"\t- {guess.extension} ({guess.mime_type}): {guess.name}")
+                    l.warning(
+                        f"\t- {guess.extension} ({guess.mime_type}): {guess.name}"
+                    )
             continue
 
-        print("Written translated file to:", output_path)
+        l.info(f"Written translated file to: {output_path}")
 
 
 if __name__ == "__main__":

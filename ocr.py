@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 from PIL import Image
 import statistics
+from logger import get_logger
 
 def approx_equal(n, m, epsilon: int | float = 10):
     return abs(n - m) < epsilon
@@ -192,6 +193,8 @@ class PyOCR(OCR):
     def __init__(self, lang) -> None:
         import pyocr
 
+        l = get_logger("PYOCR") # noqa: E741
+
         tools = pyocr.get_available_tools()
         if len(tools) == 0:
             raise ValueError(
@@ -199,19 +202,19 @@ class PyOCR(OCR):
             )
 
         if len(tools) > 1:
-            print(f"Found {len(tools)} PyOCR compatible tools")
+            l.info(f"Found {len(tools)} PyOCR compatible tools")
             for tool in tools:
-                print(f"\t - {tool.get_name()}")
+                l.info(f"\t - {tool.get_name()}")
 
         self.tool = tools[0]
-        print(f"Using PyOCR tool: {self.tool.get_name()}")
+        l.info(f"Using PyOCR tool: {self.tool.get_name()}")
 
         langs: list[str] = self.tool.get_available_languages()
         if lang not in langs:
-            print(
+            l.error(
                 f"'{lang}' is not a supported language. Either install a language plugin or pick a different language"
             )
-            print(f"Currently supported languages: {', '.join(langs)}")
+            l.error(f"Currently supported languages: {', '.join(langs)}")
             raise ValueError(f"Unsupported language '{lang}'")
 
         self.lang = lang

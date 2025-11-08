@@ -13,6 +13,8 @@ from abc import ABC, abstractmethod
 from enum import Enum
 import platformdirs
 
+from logger import get_logger
+
 
 class Translator(ABC):
     name: str
@@ -56,45 +58,46 @@ class ArgosTranslator(Translator):
     def __init__(self, source_lang, target_lang="en") -> None:
         import argostranslate.package
 
+        l = get_logger("ARGOS")  # noqa: E741
+
         super().__init__("argos")
         self.source_lang = source_lang
         self.target_lang = target_lang
 
         installed_packages = argostranslate.package.get_installed_packages()
         trans_packages = self.find_packages_for_translation(installed_packages)
-        if trans_packages == None:
-            print(
+        if trans_packages is None:
+            l.info(
                 "Could not find appropriate Argos packages installed, fetching from remote repository..."
             )
             argostranslate.package.update_package_index()
             available_packages = argostranslate.package.get_available_packages()
             trans_packages = self.find_packages_for_translation(available_packages)
-            if trans_packages == None:
+            if trans_packages is None:
                 raise ValueError(
                     f"Failed to find appropriate Argos packages for translation from {self.source_lang} to {self.target_lang}"
                 )
 
             # We only need to download the packages that are not already installed
-            pkg_not_installed = lambda pkg: all(
-                pkg != installed for installed in installed_packages
-            )
+            def pkg_not_installed(pkg):
+                return all(pkg != installed for installed in installed_packages)
 
             for package in filter(
                 pkg_not_installed,
                 trans_packages,
             ):
                 assert isinstance(package, argostranslate.package.AvailablePackage)
-                print(f"Argos package {package} not installed, downloading...")
+                l.info(f"Argos package {package} not installed, downloading...")
                 package.install()
 
         # Check that the packages are installed
         installed_packages = argostranslate.package.get_installed_packages()
         trans_packages = self.find_packages_for_translation(installed_packages)
         assert (
-            trans_packages != None
+            trans_packages is not None
         ), "Somehow package installation failed without error"
         for package in trans_packages:
-            print(f"Using Argos package: {package}")
+            l.info(f"Using Argos package: {package}")
 
     def translate(self, text: str) -> str:
         import argostranslate.translate
@@ -161,6 +164,8 @@ if sys.platform != "win32":
             ).joinpath("bergamot"),
         ) -> None:
             super().__init__("bergamot")
+            l = get_logger("BERGAMOT") # noqa: E741
+
             self.source_lang = source_lang
             self.target_lang = target_lang
             import bergamot
@@ -169,7 +174,7 @@ if sys.platform != "win32":
             installed_models = BergamotTranslator.installed_models(models_install_path)
             model = self.choose_model(installed_models)
             if not model:
-                print(
+                l.info(
                     "Could not find locally installed model, fetching from Firefox repository..."
                 )
                 models = BergamotTranslator.fetch_models_from_repo()
@@ -178,11 +183,11 @@ if sys.platform != "win32":
                     raise ValueError(
                         f"Could not find appropriate translation model for {source_lang} -> {target_lang}"
                     )
-                print(f"Found suitable model, downloading...")
+                l.info("Found suitable model, downloading...")
                 model = remote_model.download(models_install_path)
-                print("Downloads finished")
+                l.info("Downloads finished")
 
-            print(f"Using model: {model.description()}")
+            l.info(f"Using model: {model.description()}")
             if not model.has_config():
                 model.create_config()
 
@@ -392,6 +397,8 @@ alignment: soft
 
         @staticmethod
         def fetch_models_from_repo() -> typing.Sequence[RemoteModel]:
+            l = get_logger("BERGAMOT") # noqa: E741
+
             with urllib.request.urlopen(BergamotTranslator.URL_MODELS_BY_HASH) as fp:
                 models_by_hash: dict = json.load(fp)
 
@@ -399,7 +406,7 @@ alignment: soft
             for path in models_by_hash.values():
                 m = BergamotTranslator.RE_METADATA_PATH.match(path)
                 if not m:
-                    print(
+                    l.warning(
                         f"Found no match for firefox model path, this shouldn't happen, skipping path: {path}"
                     )
                     continue
