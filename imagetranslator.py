@@ -29,9 +29,6 @@ from translator import (
 
 l = get_logger("MAIN")  # noqa: E741
 
-if sys.platform != "win32":
-    from translator import BergamotTranslator
-
 
 def wrap_text(
     draw: ImageDraw.ImageDraw,
@@ -445,7 +442,6 @@ def main():
     if sys.platform != "win32":
         translator_choices = [
             "argos",
-            "bergamot",
             "opus",
             "mbart50",
             "m2m-100-418M",
@@ -558,8 +554,6 @@ def main():
 
     if args.translator == "argos":
         translator = ArgosTranslator(args.source_lang, args.target_lang)
-    elif args.translator == "bergamot":
-        translator = BergamotTranslator(args.source_lang, args.target_lang)
     elif args.translator == "opus":
         translator = EasyNMTTranslator(
             EasyNMTTranslator.Model.OPUS,

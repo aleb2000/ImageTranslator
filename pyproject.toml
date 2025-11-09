@@ -7,7 +7,6 @@ requires-python = ">=3.10"
 dependencies = [
     "accelerate>=1.10.1",
     "argostranslate>=1.9.6",
-    "bergamot>=0.4.5; sys_platform != 'win32'",
     "cnocr[ort-cpu]>=2.3.2.1",
     "easynmt>=2.0.2",
     "easyocr>=1.7.2",

@@ -18,9 +18,6 @@ from imagetranslator import (
     translate_image_file,
 )
 
-if sys.platform != "win32":
-    from imagetranslator import BergamotTranslator
-
 from iso639 import languages
 
 
@@ -43,18 +40,13 @@ OCR_ENGINES = [
 
 class TranslationModel(str, Enum):
     ARGOS = "Argos Translate"
-    if sys.platform != "win32":
-        BERGAMOT = "Bergamot"
     OPUS = "Opus-MT"
     MBART50 = "mBART_50"
     M2M_100_418M = "M2M_100_418M"
     M2M_100_1_2B = "M2M_100_1.2B"
 
 
-if sys.platform != "win32":
-    TRANSLATION_MODELS_CPU = [TranslationModel.ARGOS, TranslationModel.BERGAMOT]
-else:
-    TRANSLATION_MODELS_CPU = [TranslationModel.ARGOS]
+TRANSLATION_MODELS_CPU = [TranslationModel.ARGOS]
 
 TRANSLATION_MODELS_SUPPORT_CUDA = [
     TranslationModel.OPUS,
@@ -807,8 +799,6 @@ class ImageTranslatorFrame(wx.Frame):
         try:
             if translator_name == TranslationModel.ARGOS:
                 translator = ArgosTranslator(source_lang, target_lang)
-            elif sys.platform != "win32" and translator_name == TranslationModel.BERGAMOT:
-                translator = BergamotTranslator(source_lang, target_lang)
             elif translator_name == TranslationModel.OPUS:
                 translator = EasyNMTTranslator(
                     EasyNMTTranslator.Model.OPUS,
