@@ -3,11 +3,11 @@ name = "imagetranslator-gui"
 version = "0.1.0"
 description = "GUI application for imagetranslator"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 dependencies = [
     "imagetranslator",
     "iso-639>=0.4.5",
-    "wxpython>=4.2.3",
+    "wxpython>=4.2.4",
 ]
 
 [tool.uv.sources]

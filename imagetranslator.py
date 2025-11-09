@@ -9,7 +9,7 @@ import numpy as np
 from pypdf import PageObject, PdfWriter
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import puremagic
-from logger import __initialize_logger, get_logger
+from logger import get_logger
 from ocr import (
     OCR,
     CnOCR,

@@ -1,7 +1,6 @@
 from enum import Enum
 import sys
 import logging
-import zlib
 
 ENDC = '\033[0m'
 
@@ -20,7 +19,7 @@ class Color(int, Enum):
 
 
 def ansi_color(color: Color):
-    return f"\033[0;{color}m"
+    return f"\033[0;{color.value}m"
 
 
 class __CustomFormatter(logging.Formatter):

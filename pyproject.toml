@@ -3,7 +3,7 @@ name = "imagetranslator"
 version = "0.1.0"
 description = "Translate images locally"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.13"
 dependencies = [
     "accelerate>=1.10.1",
     "argostranslate>=1.9.6",
@@ -13,14 +13,14 @@ dependencies = [
     "numpy>=2.0.0",
 	"paddlepaddle>=3.2.0",
     "paddleocr[all]>=3.2.0",
-    "pillow>=10.0,<11.0",
+    "pillow>=10.0",
     "platformdirs>=4.4.0",
     "puremagic>=1.30",
     "pylette>=5.1",
     "pyocr>=0.8.5",
     "pypdf>=6.0.0",
     "scipy>=1.15.3",
-    "sentencepiece",
+    "sentencepiece>=0.2.1",
     "simple-lama-inpainting>=0.1.2",
     "torch>=2.8.0",
     "transformers>=4.56.1",
