@@ -13,7 +13,7 @@ dependencies = [
     "numpy>=2.0.0",
 	"paddlepaddle>=3.2.0",
     "paddleocr[all]>=3.2.0",
-    "pillow>=10.0",
+    "pillow>=11.0.0",
     "platformdirs>=4.4.0",
     "puremagic>=1.30",
     "pylette>=5.1",
@@ -23,7 +23,7 @@ dependencies = [
     "sentencepiece>=0.2.1",
     "simple-lama-inpainting>=0.1.2",
     "torch>=2.8.0",
-    "transformers>=4.56.1",
+    "transformers>=4.39.3",
 ]
 
 [tool.uv]
