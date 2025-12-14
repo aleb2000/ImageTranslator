@@ -23,7 +23,6 @@ with the exception being PyOCR which requires you to manually install the approp
 The following translators are supported.
 
 - [Argos Translate](https://github.com/argosopentech/argos-translate) as the default translator, as it is very lightweight while having quite a good translation performance.
-- [Bergamot Translator](https://github.com/browsermt/bergamot-translator/), using the [Firefox Translations](https://github.com/mozilla/firefox-translations-models) models (except on the Windows platform, where it is unsupported).
 - [EasyNMT](https://github.com/UKPLab/EasyNMT), a wrapper for several translation models:
     - Opus-MT
     - mBART_50
@@ -47,7 +46,7 @@ Text erasure can be disabled if necessary.
 
 All models (except the Tesseract ones) will be downloaded automatically when required.
 
-NOTE: The downloads are handled by each OCR engine and translator on their own as such their download location will vary, check each model's own documentation if you want to learn where the model has been downloaded. The only exception is Bergamot, that did not include automatic model download functionality and as such I have implemented it myself: the models are downloaded at `~/.local/share/imagetranslator/bergamot` (on Linux).
+NOTE: The downloads are handled by each OCR engine and translator on their own as such their download location will vary, check each model's own documentation if you want to learn where the model has been downloaded.
 
 Neither CLI nor GUI applications currently implement a way to manage downloaded models. To remove them you will have to manually delete the files yourself.
 
