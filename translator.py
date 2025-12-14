@@ -14,6 +14,7 @@ from enum import Enum
 import platformdirs
 
 from logger import get_logger
+from util import LangName, correct_lang
 
 
 class Translator(ABC):
@@ -55,8 +56,13 @@ class ArgosTranslator(Translator):
     source_lang: str
     target_lang: str
 
+    LANG_MAP = [(LangName.JP, "ja")]
+
     def __init__(self, source_lang, target_lang="en") -> None:
         import argostranslate.package
+        
+        source_lang = correct_lang(source_lang, ArgosTranslator.LANG_MAP)
+        target_lang = correct_lang(target_lang, ArgosTranslator.LANG_MAP)
 
         l = get_logger("ARGOS")  # noqa: E741
 

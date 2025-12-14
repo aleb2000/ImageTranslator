@@ -4,6 +4,7 @@ from typing import Any
 from PIL import Image
 import statistics
 from logger import get_logger
+from util import LangName, correct_lang
 
 def approx_equal(n, m, epsilon: int | float = 10):
     return abs(n - m) < epsilon
@@ -177,21 +178,33 @@ class CnOCR(OCR):
 
 
 class EasyOCR(OCR):
+    LANG_MAP = [(LangName.JP, "ja")]
+
     def __init__(self, langs: list[str], gpu=False) -> None:
         import easyocr
+
+        langs = list(map(lambda lang: correct_lang(lang, EasyOCR.LANG_MAP), langs))
         self.reader = easyocr.Reader(
             langs,
             gpu=gpu,
         )
 
     def ocr(self, image: Image.Image) -> list[OCRResult]:
-        results = self.reader.readtext(image)
+        import numpy as np
+
+        results = self.reader.readtext(np.asarray(image))
         return [OCRResult.from_easyocr_result(res) for res in results]
 
 
 class PyOCR(OCR):
-    def __init__(self, lang) -> None:
+    LANG_MAP = [(LangName.JP, "jpn")]
+
+    def __init__(self, lang, vertical=False) -> None:
         import pyocr
+
+        lang = correct_lang(lang, PyOCR.LANG_MAP)
+        if vertical:
+            lang = lang + "_vert"
 
         l = get_logger("PYOCR") # noqa: E741
 
@@ -231,13 +244,12 @@ class PyOCR(OCR):
 class PaddleOCR(OCR):
     # For some reason RaddleOCR uses two character language codes for most languages
     # except some are different...
-    LANG_REPLACE = {"zh": "ch", "ko": "korean", "jp": "japanese"}
+    LANG_MAP = [(LangName.ZH, "ch"), ("ko", "korean"), (LangName.JP, "japan")]
 
     def __init__(self, lang) -> None:
         from paddleocr import PaddleOCR as _PaddleOCR
 
-        if lang in PaddleOCR.LANG_REPLACE:
-            lang = PaddleOCR.LANG_REPLACE[lang]
+        lang = correct_lang(lang, PaddleOCR.LANG_MAP)
 
         self._ocr = _PaddleOCR(
             use_doc_orientation_classify=False,

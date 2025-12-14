@@ -243,7 +243,11 @@ class ImageTranslator:
 
     @staticmethod
     def _cover_blur(image: Image.Image, ocr_results: list[OCRResult]):
-        blurred = image.filter(ImageFilter.GaussianBlur(15))
+        filterable_image = image
+        if filterable_image.mode == "P":
+            filterable_image = filterable_image.convert()
+
+        blurred = filterable_image.filter(ImageFilter.GaussianBlur(15))
         blur_mask = Image.new("L", image.size, 0)
         blur_mask_draw = ImageDraw.Draw(blur_mask)
         for res in ocr_results:
@@ -601,7 +605,7 @@ def main():
     elif args.ocr == "easy" or args.ocr == "easyocr":
         ocr = EasyOCR([args.source_lang])
     elif args.ocr == "py" or args.ocr == "pyocr":
-        ocr = PyOCR(args.source_lang)
+        ocr = PyOCR(args.source_lang, args.vertical)
     else:
         l.error(f"Unknown OCR engine: {args.ocr}")
         sys.exit(1)
