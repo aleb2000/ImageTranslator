@@ -154,6 +154,8 @@ class EasyNMTTranslator(Translator):
     source_lang: str | None
     target_lang: str
 
+    LANG_MAP = [(LangName.JP, "ja")]
+
     class Model(str, Enum):
         OPUS = "opus-mt"
         MBART_50 = "mbart50_m2m"
@@ -176,6 +178,10 @@ class EasyNMTTranslator(Translator):
 
         super().__init__(model_name)
         nltk.download("punkt_tab")
+
+        if source_lang:
+            source_lang = correct_lang(source_lang, EasyNMTTranslator.LANG_MAP)
+        target_lang = correct_lang(target_lang, EasyNMTTranslator.LANG_MAP)
 
         self.model = EasyNMT(model_name, device=device)
         self.source_lang = source_lang
