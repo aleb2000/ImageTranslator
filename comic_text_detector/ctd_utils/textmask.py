@@ -3,7 +3,7 @@ import cv2
 import numpy as np
 
 from .utils.imgproc_utils import union_area, enlarge_window
-from ..utils_bak import TextBlock 
+from .textblock import TextBlock 
 from ..utils import Quadrilateral
 
 WHITE = (255, 255, 255)

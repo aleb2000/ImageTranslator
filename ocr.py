@@ -7,7 +7,7 @@ import statistics
 import cv2
 from comic_text_detector.ctd_utils.basemodel import TextDetBaseDNN
 from comic_text_detector.ctd_utils.textmask import refine_mask
-from db_utils import SegDetectorRepresenter
+from comic_text_detector.ctd_utils.utils.db_utils import SegDetectorRepresenter
 from logger import get_logger
 from language import Language, correct_lang
 from resource_manager import RESOURCE_MANAGER
