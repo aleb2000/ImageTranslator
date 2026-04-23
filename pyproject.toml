@@ -24,6 +24,11 @@ dependencies = [
     "simple-lama-inpainting>=0.1.2",
     "torch>=2.8.0",
     "transformers>=4.39.3",
+    "ctranslate2>=4.6.2",
+    "manga-ocr>=0.1.14",
+    "py3langid>=0.3.0",
+    "colorama>=0.4.6",
+    "urllib3>=2.6.2",
 ]
 
 [tool.uv]

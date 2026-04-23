@@ -1,6 +1,8 @@
 from __future__ import annotations
+import pathlib as pl
 from dataclasses import dataclass
 import sys
+import tarfile
 import urllib.request
 import json
 import unicodedata
@@ -8,13 +10,18 @@ import re
 import gzip
 from pathlib import Path
 import typing
+from typing import Dict
 
 from abc import ABC, abstractmethod
 from enum import Enum
+import zipfile
+import ctranslate2
+import sentencepiece as spm
 import platformdirs
 
 from logger import get_logger
-from util import LangName, correct_lang
+from language import Language, correct_lang
+from resource_manager import RESOURCE_MANAGER
 
 
 class Translator(ABC):
@@ -56,11 +63,11 @@ class ArgosTranslator(Translator):
     source_lang: str
     target_lang: str
 
-    LANG_MAP = [(LangName.JP, "ja")]
+    LANG_MAP = [(Language.JP, "ja")]
 
     def __init__(self, source_lang, target_lang="en") -> None:
         import argostranslate.package
-        
+
         source_lang = correct_lang(source_lang, ArgosTranslator.LANG_MAP)
         target_lang = correct_lang(target_lang, ArgosTranslator.LANG_MAP)
 
@@ -154,7 +161,7 @@ class EasyNMTTranslator(Translator):
     source_lang: str | None
     target_lang: str
 
-    LANG_MAP = [(LangName.JP, "ja")]
+    LANG_MAP = [(Language.JP, "ja")]
 
     class Model(str, Enum):
         OPUS = "opus-mt"
@@ -203,3 +210,92 @@ class EasyNMTTranslator(Translator):
             texts, target_lang=self.target_lang, source_lang=self.source_lang
         )
         return trans
+
+
+class SugoiTranslator(Translator):
+    """
+    Model and implementation obtained by https://github.com/zyddnys/manga-image-translator
+    """
+
+    model: ctranslate2.Translator
+    sentencepiece_processors: Dict[str, spm.SentencePieceProcessor]
+
+    LANGUAGE_MAPPING = [(Language.JP, "ja")]
+    MODEL_DOWNLOAD_URL = "https://github.com/zyddnys/manga-image-translator/releases/download/beta-0.3/sugoi-models.zip"
+
+    def __init__(
+        self,
+        source_lang: Language | str = "jp",
+        target_lang: str = "en",
+    ) -> None:
+        super().__init__("sugoi")
+
+        l = get_logger("SUGOI")  # noqa: E741
+
+        if source_lang != Language.JP or target_lang != "en":
+            raise ValueError(
+                f"sugoi: Unsupported language pair {source_lang}->{target_lang}"
+            )
+
+        self.source_lang = correct_lang(source_lang, SugoiTranslator.LANGUAGE_MAPPING)
+        self.target_lang = correct_lang(target_lang, SugoiTranslator.LANGUAGE_MAPPING)
+
+        model_dir = RESOURCE_MANAGER.path("sugoi-models")
+
+        if not model_dir.exists():
+            l.info(f"Downloading model {self.source_lang}->{self.target_lang}")
+
+            model_zip_path = RESOURCE_MANAGER.get(
+                f"{model_dir.name}.zip",
+                SugoiTranslator.MODEL_DOWNLOAD_URL,
+            )
+            with zipfile.ZipFile(model_zip_path, "r") as fp:
+                fp.extractall(model_dir)
+            model_zip_path.unlink()
+
+        self.model = ctranslate2.Translator(
+            str(model_dir / f"big-{self.source_lang}-{self.target_lang}")
+        )
+        self.model.load_model()
+
+        self.sentencepiece_processors = {
+            self.target_lang: spm.SentencePieceProcessor(
+                model_file=str(model_dir / f"spm.{self.target_lang}.nopretok.model")
+            ),
+            self.source_lang: spm.SentencePieceProcessor(
+                model_file=str(model_dir / f"spm.{self.source_lang}.nopretok.model")
+            ),
+        }
+
+    def _tokenize(self, queries: str | list[str], lang: str):
+        processor = self.sentencepiece_processors[lang]
+
+        if isinstance(queries, list):
+            return processor.encode(queries, out_type=str)
+        else:
+            return [processor.encode(queries, out_type=str)]
+
+    def _detokenize(self, queries: list[str], lang: str):
+        processor = self.sentencepiece_processors[lang]
+
+        translation = processor.decode(queries)
+        return translation
+
+    def translate(self, text: str) -> str:
+        return self.batch_translate([text])[0]
+
+    def batch_translate(self, texts: list[str]) -> list[str]:
+        queries_tokenized = self._tokenize(texts, self.source_lang)
+        translated_tokenized = self.model.translate_batch(
+            source=queries_tokenized,
+            beam_size=5,
+            num_hypotheses=1,
+            return_alternatives=False,
+            disable_unk=True,
+            replace_unknowns=True,
+            repetition_penalty=3,
+        )
+        translated = self._detokenize(
+            list(map(lambda t: t[0]["tokens"], translated_tokenized)), self.target_lang
+        )
+        return translated

@@ -3,9 +3,10 @@ import argparse
 import sys
 import time
 from enum import Enum, auto
-import pathlib
+import pathlib as pl
 from typing import Any, Callable, Literal
-import numpy as np
+import cv2
+from resource_manager import ResourceManager
 from pypdf import PageObject, PdfWriter
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 import puremagic
@@ -14,18 +15,23 @@ from ocr import (
     OCR,
     CnOCR,
     EasyOCR,
+    MangaOCR,
     OCRResult,
     PaddleOCR,
     PyOCR,
     Rect,
     make_rtl,
-    verticality,
+    mostly_vertical,
+    detect_text_lines,
+    draw_text_lines_marker,
 )
 from translator import (
     ArgosTranslator,
     EasyNMTTranslator,
+    SugoiTranslator,
     Translator,
 )
+import numpy as np
 
 l = get_logger("MAIN")  # noqa: E741
 
@@ -71,6 +77,7 @@ def draw_wrapped_text(
     """
 
     def create_font(size):
+        size = max(size, 5)
         if font_path is not None:
             return ImageFont.truetype(font_path, size)
         else:
@@ -186,11 +193,18 @@ class TranslationStep(Enum):
     DRAW = auto()
 
 
+class TextOrdering(str, Enum):
+    SORT = "sort"
+    TEXTLINE_DETECTION = "textline-detection"
+
+
 class ImageTranslator:
     ocr: OCR
     translator: Translator
     text_erasure: TextErasure
     font_path: str | None
+    text_ordering: TextOrdering
+    debug: bool
 
     def __init__(
         self,
@@ -199,6 +213,8 @@ class ImageTranslator:
         text_erasure: TextErasure = TextErasure.INPAINT,
         lama_device: Literal["cpu", "cuda"] | None = None,
         font_path: str | None = None,
+        text_ordering: TextOrdering = TextOrdering.SORT,
+        debug: bool = False,
     ) -> None:
         from simple_lama_inpainting import SimpleLama
         import torch
@@ -207,6 +223,8 @@ class ImageTranslator:
         self.translator = translator
         self.text_erasure = text_erasure
         self.font_path = font_path
+        self.text_ordering = text_ordering
+        self.debug = debug
 
         if self.text_erasure == TextErasure.INPAINT_LAMA:
             if lama_device is None:
@@ -215,31 +233,54 @@ class ImageTranslator:
                 self.simple_lama = SimpleLama(device=torch.device(lama_device))
 
     @staticmethod
-    def _inpaint(image: Image.Image, ocr_results: list[OCRResult]) -> Image.Image:
+    def _inpaint(
+        image: Image.Image, ocr_results: list[OCRResult], mask: Image.Image | None
+    ) -> Image.Image:
         from skimage.restoration import inpaint
 
-        mask = Image.new("1", image.size, 0)
-        mask_draw = ImageDraw.Draw(mask)
-        for res in ocr_results:
-            assert res.text.strip() != ""
-            mask_draw.rectangle(res.bbox.coords(), fill=True)
+        if mask is None:
+            mask = Image.new("1", image.size, 0)
+            mask_draw = ImageDraw.Draw(mask)
+            for res in ocr_results:
+                assert res.text.strip() != ""
+                mask_draw.rectangle(res.bbox.coords(), fill=True)
+        else:
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            mask_arr = np.asarray(mask, dtype=np.uint8)
+            dilated = cv2.dilate(mask_arr, kernel, iterations=2)
+            mask = Image.fromarray(dilated)
 
         image_arr = np.asarray(image)
         mask_arr = np.asarray(mask, copy=True)
-        inpainted = inpaint.inpaint_biharmonic(image_arr, mask_arr, channel_axis=-1)
+        inpainted = inpaint.inpaint_biharmonic(
+            image_arr, mask_arr, channel_axis=None if image_arr.ndim == 2 else -1
+        )
         inpainted = (inpainted * 255).astype(np.uint8)
         return Image.fromarray(inpainted)
 
     def _inpaint_lama(
-        self, image: Image.Image, ocr_results: list[OCRResult]
+        self, image: Image.Image, ocr_results: list[OCRResult], mask: Image.Image | None
     ) -> Image.Image:
         assert self.simple_lama
-        mask = Image.new("L", image.size, 0)
-        mask_draw = ImageDraw.Draw(mask)
-        for res in ocr_results:
-            assert res.text.strip() != ""
-            mask_draw.rectangle(res.bbox.coords(), fill=255)
-        return self.simple_lama(image, mask)
+
+        if mask is None:
+            mask = Image.new("L", image.size, 0)
+            mask_draw = ImageDraw.Draw(mask)
+            for res in ocr_results:
+                assert res.text.strip() != ""
+                mask_draw.rectangle(res.bbox.coords(), fill=255)
+        else:
+            kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+            mask_arr = np.asarray(mask, dtype=np.uint8)
+            dilated = cv2.dilate(mask_arr, kernel, iterations=2)
+            mask = Image.fromarray(dilated)
+
+        # LaMa inpainting only works with RGB images
+        if image.mode != "RGB":
+            image = image.convert("RGB")
+
+        inpainted = self.simple_lama(image, mask)
+        return inpainted
 
     @staticmethod
     def _cover_blur(image: Image.Image, ocr_results: list[OCRResult]):
@@ -264,19 +305,29 @@ class ImageTranslator:
             [TranslationStep | None, TranslationStep | None], None
         ] = lambda _previos_step, _next_step: None,
         logger=l,  # noqa: E741
-    ):
+    ) -> Image.Image:
         from Pylette import extract_colors
 
         l = logger  # noqa: E741
 
         translation_step_callback(None, TranslationStep.OCR)
+        results, text_mask = self.ocr.ocr(image)
 
         results = list(
-            filter(lambda res: res.text.strip() != "", self.ocr.ocr(image)),
+            filter(lambda res: res.text.strip() != "", results),
         )
 
+        if self.debug:
+            draw = ImageDraw.Draw(image)
+            for res in results:
+                draw.rectangle(
+                    [(res.bbox.x, res.bbox.y), (res.bbox.xmax(), res.bbox.ymax())],
+                    None,
+                    "red",
+                )
+
         # Group together intersecting results
-        intersections = groupby(
+        intersections: list[list[OCRResult]] = groupby(
             results,
             lambda elem1, elem2: elem1.bbox.enlarge(10, 10).intersects(
                 elem2.bbox.enlarge(10, 10)
@@ -287,31 +338,46 @@ class ImageTranslator:
         recognitions: list[OCRResult] = []
 
         for group in intersections:
-            if vertical_rtl and verticality(group) > 0.5:
+            if vertical_rtl and mostly_vertical(group):
                 group = make_rtl(group)
 
-            group.sort()
-            merged = group[0]
-            for res in group[1:]:
-                merged = merged.merge(res)
-            recognitions.append(merged)
+            if self.text_ordering == TextOrdering.TEXTLINE_DETECTION:
+                lines = detect_text_lines(group, vertical_rtl)
+                if self.debug:
+                    draw_text_lines_marker(image, lines)
+
+                lines = [OCRResult.merge_all(line) for line in lines]
+                merged = OCRResult.merge_all(lines)
+            else:
+                group.sort()
+                merged = group[0]
+                for res in group[1:]:
+                    merged = merged.merge(res)
+
+            if merged:
+                recognitions.append(merged)
 
         translated_image = image.copy()
 
         # First cover all the recognized text boxes using the selected technique
         translation_step_callback(TranslationStep.OCR, TranslationStep.TEXT_ERASURE)
         text_erasure = self.text_erasure
-        if text_erasure == TextErasure.INPAINT:
-            try:
-                translated_image = self._inpaint(translated_image, results)
-            except ValueError as e:
-                l.error(f"Inpainting failed with error: {e}")
-                l.warning("Falling back to blur")
-                text_erasure = TextErasure.BLUR
-        if text_erasure == TextErasure.INPAINT_LAMA:
-            translated_image = self._inpaint_lama(translated_image, results)
-        if text_erasure == TextErasure.BLUR:
-            self._cover_blur(translated_image, results)
+        if not self.debug:
+            if text_erasure == TextErasure.INPAINT:
+                try:
+                    translated_image = self._inpaint(
+                        translated_image, results, text_mask
+                    )
+                except ValueError as e:
+                    l.error(f"Inpainting failed with error: {e}")
+                    l.warning("Falling back to blur")
+                    text_erasure = TextErasure.BLUR
+            if text_erasure == TextErasure.INPAINT_LAMA:
+                translated_image = self._inpaint_lama(
+                    translated_image, results, text_mask
+                )
+            if text_erasure == TextErasure.BLUR:
+                self._cover_blur(translated_image, results)
 
         # Translate text
         translation_step_callback(
@@ -333,21 +399,29 @@ class ImageTranslator:
             # Figure out the text fill and stroke colors
             cropped = image.crop(recog.bbox.coords())
             palette = extract_colors(cropped, palette_size=2)
-            text_color = tuple(palette[1].rgb)
+            assert len(palette) != 0
+
+            # I think this works well in most situations
+            if len(palette) == 1:
+                text_color = tuple(palette[0].rgb)
+            else:
+                text_color = tuple(palette[1].rgb)
+
             inverted_color = tuple(np.subtract((255, 255, 255), text_color))
 
             # Conversion to the correct mode could be improved, considering the palette already gives different modes
             text_color = color_to_image_mode(translated_image, text_color)
             inverted_color = color_to_image_mode(translated_image, inverted_color)
 
-            draw_wrapped_text(
-                draw,
-                trans,
-                recog.bbox,
-                self.font_path,
-                font_color=text_color,
-                stroke_color=inverted_color,
-            )
+            if not self.debug:
+                draw_wrapped_text(
+                    draw,
+                    trans,
+                    recog.bbox,
+                    self.font_path,
+                    font_color=text_color,
+                    stroke_color=inverted_color,
+                )
 
         translation_step_callback(TranslationStep.DRAW, None)
         return translated_image
@@ -410,7 +484,7 @@ def translate_pdf(
 
 def translate_image_file(
     image_translator: ImageTranslator,
-    path: pathlib.Path,
+    path: pl.Path,
     output_path,
     vertical_rtl=False,
 ):
@@ -432,7 +506,7 @@ def main():
 
     parser.add_argument(
         "file",
-        type=pathlib.Path,
+        type=pl.Path,
         nargs="+",
         help="The image or image-containig PDF file to translate",
     )
@@ -440,38 +514,22 @@ def main():
         "--ocr",
         type=str,
         default="auto",
-        help="The Optical Image Recognition engine to use to extract text from images. By default it will be chosen automatically depending on the source language. CnOCR whill be used for Chinese, while PaddleOCR for other supported languages, falling back to EasyOCR and PyOCR (frontend for Tesseract) when necessary.",
-        choices=["auto", "cn", "paddle", "easy", "py"],
+        help="The Optical Image Recognition engine to use to extract text from images. By default it will be chosen automatically depending on the source language. CnOCR whill be used for Chinese, while PaddleOCR for other supported languages, falling back to EasyOCR and PyOCR (frontend for Tesseract) when necessary. MangaOCR only supports japanese.",
+        choices=["auto", "cn", "paddle", "manga", "easy", "py"],
     )
-    if sys.platform != "win32":
-        translator_choices = [
-            "argos",
-            "opus",
-            "mbart50",
-            "m2m-100-418M",
-            "m2m-100-1.2B",
-        ]
-    else:
-        translator_choices = [  # type: ignore
-            "argos",
-            "opus",
-            "mbart50",
-            "m2m-100-418M",
-            "m2m-100-1.2B",
-        ]
     parser.add_argument(
         "-t",
         "--translator",
         type=str,
         default="argos",
-        help="The translation model to use. Argos is the lightest model to run and the default. Try different models and decide which one works best for your text.",
-        choices=translator_choices,
+        help="The translation model to use. Argos is the lightest model to run and the default. Sugoi is trained specifically on mangas and only supports japanese and english. Try different models and decide which one works best for your text.",
+        choices=["argos", "opus", "mbart50", "m2m-100-418M", "m2m-100-1.2B", "sugoi"],
     )
 
     parser.add_argument(
         "-o",
         "--output",
-        type=pathlib.Path,
+        type=pl.Path,
         help="Output path of the file, either an existing directory or the full file path",
     )
     parser.add_argument(
@@ -532,8 +590,17 @@ def main():
         help="Only works when using the 'inpaing-lama' text erasure. Selects the device to use when running the LaMa model. By default, it will try to automatically select the most appropriate device on the system.",
     )
     parser.add_argument(
-        "-f", "--font", type=pathlib.Path, help="Font to use for the translated text."
+        "-f", "--font", type=pl.Path, help="Font to use for the translated text."
     )
+    parser.add_argument(
+        "--text-ordering",
+        "--ordering",
+        type=str,
+        choices=["sort", "textline-detection"],
+        default="sort",
+        help="Determines how pieces of text from the image are put together to form senteces. The simplest way is to sort the text based on it's coordinates on the image. Textline detection will try to put together text that appears to form a line of text horizontally (or vertical if the --vertical option is specified). Textline detection is recommended with the PyOCR.",
+    )
+    parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
     if args.output and len(args.file) > 1 and args.output.is_file():
@@ -586,6 +653,8 @@ def main():
             source_lang=args.source_lang,
             target_lang=args.target_lang,
         )
+    elif args.translator == "sugoi":
+        translator = SugoiTranslator(args.source_lang, args.target_lang)
     else:
         l.error(f"Unknown translator: {args.translator}")
         sys.exit(1)
@@ -594,18 +663,20 @@ def main():
 
     if args.ocr == "auto":
         if args.source_lang == "zh":
-            ocr = CnOCR(args.vertical)
+            ocr = CnOCR(args.source_lang, args.vertical)
         else:
             ocr = PaddleOCR(args.source_lang)
         # TODO: additional fallback options for languages not supported by PaddleOCR. Is this necessary?
     elif args.ocr == "cn" or args.ocr == "cnocr":
-        ocr = CnOCR(args.vertical)
+        ocr = CnOCR(args.source_lang, args.vertical)
     elif args.ocr == "paddle" or args.ocr == "paddleocr":
         ocr = PaddleOCR(args.source_lang)
     elif args.ocr == "easy" or args.ocr == "easyocr":
         ocr = EasyOCR([args.source_lang])
     elif args.ocr == "py" or args.ocr == "pyocr":
         ocr = PyOCR(args.source_lang, args.vertical)
+    elif args.ocr == "manga" or args.ocr == "mangaocr":
+        ocr = MangaOCR(args.source_lang)
     else:
         l.error(f"Unknown OCR engine: {args.ocr}")
         sys.exit(1)
@@ -622,14 +693,22 @@ def main():
         l.error(f"Invalid text erasure technique: {args.text_erasure}")
         sys.exit(1)
 
+    if args.text_ordering == "sort":
+        text_ordering = TextOrdering.SORT
+    elif args.text_ordering == "textline-detection":
+        text_ordering = TextOrdering.TEXTLINE_DETECTION
+    else:
+        l.error(f"Invalid text ordering: {args.text_ordering}")
+        sys.exit(1)
+
     if args.file_list:
-        files: list[pathlib.Path] = []
+        files: list[pl.Path] = []
         for list_path in args.file:
             with open(list_path, "r") as fp:
                 lines = fp.readlines()
-                files.extend([pathlib.Path(line.strip()) for line in lines])
+                files.extend([pl.Path(line.strip()) for line in lines])
     else:
-        files: list[pathlib.Path] = args.file
+        files: list[pl.Path] = args.file
 
     if args.lama_device == "auto":
         lama_device = None
@@ -637,7 +716,7 @@ def main():
         lama_device = args.lama_device
 
     image_translator = ImageTranslator(
-        ocr, translator, text_erasure, lama_device, args.font
+        ocr, translator, text_erasure, lama_device, args.font, text_ordering, args.debug
     )
 
     for path in files:
@@ -650,7 +729,7 @@ def main():
             continue
 
         if args.output:
-            output: pathlib.Path = args.output
+            output: pl.Path = args.output
             if output.is_dir() or output.suffix == "":
                 output.mkdir(parents=True, exist_ok=True)
                 output_path = output.joinpath(path.stem + ".translated" + path.suffix)
