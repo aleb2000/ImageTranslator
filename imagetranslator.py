@@ -1,5 +1,6 @@
 from __future__ import annotations
 import argparse
+import math
 import sys
 import time
 from enum import Enum, auto
@@ -8,7 +9,7 @@ from typing import Any, Callable, Literal
 import cv2
 from resource_manager import ResourceManager
 from pypdf import PageObject, PdfWriter
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, ImageOps
 import puremagic
 from logger import get_logger
 from ocr import (
@@ -204,6 +205,7 @@ class ImageTranslator:
     text_erasure: TextErasure
     font_path: str | None
     text_ordering: TextOrdering
+    lama_downscale: float | None
     debug: bool
 
     def __init__(
@@ -214,6 +216,7 @@ class ImageTranslator:
         lama_device: Literal["cpu", "cuda"] | None = None,
         font_path: str | None = None,
         text_ordering: TextOrdering = TextOrdering.SORT,
+        lama_downscale: float | None = None,
         debug: bool = False,
     ) -> None:
         from simple_lama_inpainting import SimpleLama
@@ -224,6 +227,7 @@ class ImageTranslator:
         self.text_erasure = text_erasure
         self.font_path = font_path
         self.text_ordering = text_ordering
+        self.lama_downscale = lama_downscale
         self.debug = debug
 
         if self.text_erasure == TextErasure.INPAINT_LAMA:
@@ -279,7 +283,61 @@ class ImageTranslator:
         if image.mode != "RGB":
             image = image.convert("RGB")
 
-        inpainted = self.simple_lama(image, mask)
+        original_image = image
+        original_mask = mask
+
+        if self.lama_downscale:
+            # If the size is not divisible by the scale factor,
+            # we need to adjust the image size to avoid misalignment
+            downscaled_w = math.ceil(original_image.width * self.lama_downscale)
+            downscaled_h = math.ceil(original_image.height * self.lama_downscale)
+            safe_w = math.ceil(downscaled_w / self.lama_downscale)
+            safe_h = math.ceil(downscaled_h / self.lama_downscale)
+
+            pad_right = safe_w - original_image.width
+            pad_bottom = safe_h - original_image.height
+
+            image = ImageOps.expand(image, border=(0, 0, pad_right, pad_bottom))
+            mask = ImageOps.expand(mask, border=(0, 0, pad_right, pad_bottom))
+
+            # Downscale
+            image = image.resize(
+                (downscaled_w, downscaled_h), resample=Image.Resampling.BICUBIC
+            )
+            mask = mask.resize(
+                (downscaled_w, downscaled_h), resample=Image.Resampling.BICUBIC
+            )
+
+            # LaMa will resize the image to a multiple of 8
+            # To avoid misalignment we should also handle that
+            pad_downscaled_right = (8 - (downscaled_w % 8)) % 8
+            pad_downscaled_bottom = (8 - (downscaled_h % 8)) % 8
+
+            image = ImageOps.expand(
+                image, border=(0, 0, pad_downscaled_right, pad_downscaled_bottom)
+            )
+            mask = ImageOps.expand(
+                mask, border=(0, 0, pad_downscaled_right, pad_downscaled_bottom)
+            )
+
+        inpainted: Image.Image = self.simple_lama(image, mask)
+
+        if self.lama_downscale:
+            inpainted = inpainted.crop((0, 0, downscaled_w, downscaled_h))
+
+            # Upscale back using original image for the part that was not inpainted
+            inpainted = inpainted.resize(
+                (safe_w, safe_h), resample=Image.Resampling.BICUBIC
+            )
+
+            inpainted = inpainted.crop(
+                (0, 0, original_image.width, original_image.height)
+            )
+
+            # Blur the mask to make the scaled edges less sharp
+            soft_mask = original_mask.filter(ImageFilter.GaussianBlur(1))
+            inpainted = Image.composite(inpainted, original_image, soft_mask)
+
         return inpainted
 
     @staticmethod
@@ -306,7 +364,7 @@ class ImageTranslator:
         ] = lambda _previos_step, _next_step: None,
         logger=l,  # noqa: E741
     ) -> Image.Image:
-        from Pylette import extract_colors
+        from pylette import extract_colors
 
         l = logger  # noqa: E741
 
@@ -590,6 +648,12 @@ def main():
         help="Only works when using the 'inpaing-lama' text erasure. Selects the device to use when running the LaMa model. By default, it will try to automatically select the most appropriate device on the system.",
     )
     parser.add_argument(
+        "--lama-downscale",
+        type=ranged_type(float, 0, 1, min_exclusive=True, max_exclusive=True),
+        default=0.25,
+        help="The factor by which to downscale the image before running the LaMa model. The inpainted parts are then scaled back to the original size. It also allows the inpainting model to more accurately reconstruct details, at the cost of image resoltion below the original text.",
+    )
+    parser.add_argument(
         "-f", "--font", type=pl.Path, help="Font to use for the translated text."
     )
     parser.add_argument(
@@ -716,7 +780,14 @@ def main():
         lama_device = args.lama_device
 
     image_translator = ImageTranslator(
-        ocr, translator, text_erasure, lama_device, args.font, text_ordering, args.debug
+        ocr,
+        translator,
+        text_erasure=text_erasure,
+        lama_device=lama_device,
+        font_path=args.font,
+        text_ordering=text_ordering,
+        lama_downscale=args.lama_downscale,
+        debug=args.debug,
     )
 
     for path in files:
@@ -777,6 +848,64 @@ def main():
             continue
 
         l.info(f"Written translated file to: {output_path}")
+
+
+# From https://stackoverflow.com/a/71112312
+def ranged_type(
+    value_type, min_value, max_value, min_exclusive=False, max_exclusive=False
+):
+    """
+    Return function handle of an argument type function for ArgumentParser checking a range:
+        min_value <= arg <= max_value
+
+    Parameters
+    ----------
+    value_type  - value-type to convert arg to
+    min_value   - minimum acceptable argument
+    max_value   - maximum acceptable argument
+
+    Returns
+    -------
+    function handle of an argument type function for ArgumentParser
+
+
+    Usage
+    -----
+        ranged_type(float, 0.0, 1.0)
+
+    """
+
+    def range_checker(arg: str):
+        try:
+            f = value_type(arg)
+        except ValueError:
+            raise argparse.ArgumentTypeError(f"must be a valid {value_type}")
+
+        valid = True
+        if min_exclusive:
+            valid = f > min_value
+        else:
+            valid = f >= min_value
+        if max_exclusive:
+            valid = f < max_value
+        else:
+            valid = f <= max_value
+
+        if not valid:
+            range_min_symbol = "["
+            if min_exclusive:
+                range_min_symbol = "("
+            range_max_symbol = "]"
+            if max_exclusive:
+                range_max_symbol = ")"
+
+            raise argparse.ArgumentTypeError(
+                f"must be within {range_min_symbol}{min_value}, {max_value}{range_max_symbol}"
+            )
+        return f
+
+    # Return function handle to checking function
+    return range_checker
 
 
 if __name__ == "__main__":
