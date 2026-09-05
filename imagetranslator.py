@@ -142,10 +142,10 @@ def draw_wrapped_text(
 
 
 def color_to_image_mode(image: Image.Image, color: tuple[int, ...]):
-    r = color[0]
-    g = color[1]
-    b = color[2]
     if image.mode == "L":
+        r = color[0]
+        g = color[1]
+        b = color[2]
         return int((r + g + b) // 3)
     return color
 
@@ -649,7 +649,7 @@ def main():
     )
     parser.add_argument(
         "--lama-downscale",
-        type=ranged_type(float, 0, 1, min_exclusive=True, max_exclusive=True),
+        type=ranged_type(float, 0, 1, min_exclusive=True, max_exclusive=False),
         default=0.25,
         help="The factor by which to downscale the image before running the LaMa model. The inpainted parts are then scaled back to the original size. It also allows the inpainting model to more accurately reconstruct details, at the cost of image resoltion below the original text.",
     )
