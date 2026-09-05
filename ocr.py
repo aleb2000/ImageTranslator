@@ -334,12 +334,7 @@ class CnOCR(OCR):
     def __init__(self, lang: str, vertical: bool = False) -> None:
         from cnocr import CnOcr
 
-        if lang == Language.ZH and vertical:
-            self._ocr = CnOcr(rec_model_name="ch_PP-OCRv5_server")
-        elif lang == Language.JP:
-            self._ocr = CnOcr(rec_model_name="japan_PP-OCRv3")
-        else:
-            self._ocr = CnOcr()
+        self._ocr = CnOcr(model_name="multi_PP-OCRv6")
 
     def ocr(self, image: Image.Image) -> tuple[list[OCRResult], Image.Image | None]:
         results = self._ocr.ocr(image)
