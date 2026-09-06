@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "accelerate>=1.10.1",
-    "argostranslate>=1.9.6",
+    "argostranslate>=1.11.0",
     "cnocr[ort-cpu]>=2.3.3",
     "easynmt>=2.0.2",
     "easyocr>=1.7.2",

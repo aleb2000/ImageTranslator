@@ -1284,7 +1284,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "accelerate", specifier = ">=1.10.1" },
-    { name = "argostranslate", specifier = ">=1.9.6" },
+    { name = "argostranslate", specifier = ">=1.11.0" },
     { name = "cnocr", extras = ["ort-cpu"], specifier = ">=2.3.3" },
     { name = "colorama", specifier = ">=0.4.6" },
     { name = "ctranslate2", specifier = ">=4.6.2" },
