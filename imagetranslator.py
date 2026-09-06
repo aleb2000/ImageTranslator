@@ -206,6 +206,7 @@ class ImageTranslator:
     font_path: str | None
     text_ordering: TextOrdering
     lama_downscale: float | None
+    strip_punctuation: bool
     debug: bool
 
     def __init__(
@@ -217,6 +218,7 @@ class ImageTranslator:
         font_path: str | None = None,
         text_ordering: TextOrdering = TextOrdering.SORT,
         lama_downscale: float | None = None,
+        strip_punctuation: bool = False,
         debug: bool = False,
     ) -> None:
         from simple_lama_inpainting import SimpleLama
@@ -228,6 +230,7 @@ class ImageTranslator:
         self.font_path = font_path
         self.text_ordering = text_ordering
         self.lama_downscale = lama_downscale
+        self.strip_punctuation = strip_punctuation
         self.debug = debug
 
         if self.text_erasure == TextErasure.INPAINT_LAMA:
@@ -441,18 +444,27 @@ class ImageTranslator:
         translation_step_callback(
             TranslationStep.TEXT_ERASURE, TranslationStep.TRANSLATE
         )
+        texts = [recog.text for recog in recognitions]
+
+        if self.strip_punctuation:
+            texts = list(map(lambda text: self._strip_punctuation(text), texts))
+
         text_to_draw: list[tuple[OCRResult, str]] = list(
             zip(
                 recognitions,
-                self.translator.batch_translate([recog.text for recog in recognitions]),
+                texts,
+                self.translator.batch_translate(texts),
             )
         )
 
         # Now draw the text
         translation_step_callback(TranslationStep.TRANSLATE, TranslationStep.DRAW)
         draw = ImageDraw.Draw(translated_image)
-        for recog, trans in text_to_draw:
-            l.info(f"{recog.text} -> {trans}")
+        for recog, text, trans in text_to_draw:
+            if recog.text != text:
+                l.info(f"{recog.text} -> {text} -> {trans}")
+            else:
+                l.info(f"{recog.text} -> {trans}")
 
             # Figure out the text fill and stroke colors
             cropped = image.crop(recog.bbox.coords())
@@ -483,6 +495,22 @@ class ImageTranslator:
 
         translation_step_callback(TranslationStep.DRAW, None)
         return translated_image
+
+    def _strip_punctuation(self, text: str) -> str:
+        import unicodedata
+
+        def is_punctuation(c: str):
+            return unicodedata.category(c).startswith("P") or c in ["～", "~"]
+
+        result = []
+        for c in text:
+            if not is_punctuation(c):
+                result.append(c)
+            else:
+                # Append space in place of punctuation
+                # in an attempt to preserve sentence structure
+                result.append(" ")
+        return " ".join("".join(result).split())
 
 
 step_start_time: float = 0.0
@@ -664,6 +692,11 @@ def main():
         default="sort",
         help="Determines how pieces of text from the image are put together to form senteces. The simplest way is to sort the text based on it's coordinates on the image. Textline detection will try to put together text that appears to form a line of text horizontally (or vertical if the --vertical option is specified). Textline detection is recommended with the PyOCR.",
     )
+    parser.add_argument(
+        "--strip-punctuation",
+        action="store_true",
+        help="Remove punctuation before running the translation tool. Might help with translation quality.",
+    )
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
@@ -787,6 +820,7 @@ def main():
         font_path=args.font,
         text_ordering=text_ordering,
         lama_downscale=args.lama_downscale,
+        strip_punctuation=args.strip_punctuation,
         debug=args.debug,
     )
 
