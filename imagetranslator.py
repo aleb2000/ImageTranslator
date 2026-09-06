@@ -500,7 +500,9 @@ class ImageTranslator:
         import unicodedata
 
         def is_punctuation(c: str):
-            return unicodedata.category(c).startswith("P") or c in ["～", "~"]
+            return (
+                unicodedata.category(c).startswith("P") or c in ["～", "~"]
+            ) and c != "?"
 
         result = []
         for c in text:
