@@ -586,7 +586,7 @@ def translate_image_file(
         ),
         logger,
     )
-    translated_image.save(output_path)
+    translated_image.save(output_path, quality=100, subsampling="4:4:4")
 
 
 def main():
